@@ -1,0 +1,9 @@
+let x = 10;
+
+x = x + 5;
+
+print(x);
+
+let name = input("Enter your name: ");
+
+print("Thanks for running this script " + name + "!");
