@@ -18,6 +18,29 @@ Number = [0-9]+(\.[0-9]+)?
 String = ('[^']*')|("[^"]*")
 ```
 
+## Boolean
+
+```
+Boolean = "true" | "false"
+```
+
+## Undefined
+
+```
+Undefined = "undefined"
+```
+
+## Field
+
+```
+Field = Identifier ":" Expression
+```
+
+## ObjectLiteral
+
+```
+ObjectLiteral = "{{" [ Field ("," Field)* ] "}}"
+```
 
 ## Primary
 
@@ -25,16 +48,22 @@ String = ('[^']*')|("[^"]*")
 Primary = Identifier
         | Number
         | String
-        | "true"
-        | "false"
-        | "undefined"
+        | Boolean
+        | Undefined
+        | ObjectLiteral
         | "(" Expression ")"
+```
+
+## FieldAccess
+
+```
+FieldAccess = Primary { "." Identifier }
 ```
 
 ## Unary
 
 ```
-Unary = ("-" | "!") Unary | Primary
+Unary = ("-" | "!") Unary | FieldAccess
 ```
 
 ## Factor

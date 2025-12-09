@@ -233,6 +233,34 @@ impl Executor {
             Expression::Undefined => Ok(Value::Undefined),
             Expression::True => Ok(Value::Boolean(true)),
             Expression::False => Ok(Value::Boolean(false)),
+            Expression::ObjectLiteral { properties } => {
+                let mut obj_properties = HashMap::new();
+                for (key, value_expr) in properties {
+                    let value = self.evaluate_expression(value_expr)?;
+                    obj_properties.insert(key.clone(), value);
+                }
+                let object = Object {
+                    properties: obj_properties,
+                };
+                Ok(Value::Object(Rc::new(RefCell::new(object))))
+            }
+            Expression::FieldAccess { object, field } => {
+                let object_value = self.evaluate_expression(object)?;
+                match object_value {
+                    Value::Object(obj_rc) => {
+                        let obj_ref = obj_rc.borrow();
+                        if let Some(field_value) = obj_ref.properties.get(field) {
+                            Ok(field_value.clone())
+                        } else {
+                            Err(ExecutionError::UndefinedVariable(field.clone()))
+                        }
+                    }
+                    _ => Err(ExecutionError::TypeMismatch(format!(
+                        "Cannot access field '{}' on non-object value {:?}",
+                        field, object_value
+                    ))),
+                }
+            }
             _ => todo!("Expression evaluation not implemented for {:?}", expr),
         }
     }

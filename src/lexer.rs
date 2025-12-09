@@ -94,6 +94,10 @@ pub enum Token<'source> {
     LBrace,
     #[token("}")]
     RBrace,
+    #[token("{{")]
+    DoubleLBrace,
+    #[token("}}")]
+    DoubleRBrace,
     #[token("[")]
     LBracket,
     #[token("]")]

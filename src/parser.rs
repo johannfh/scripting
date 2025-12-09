@@ -51,6 +51,13 @@ pub enum Expression {
     True,
     False,
     Undefined,
+    ObjectLiteral {
+        properties: Vec<(String, Expression)>,
+    },
+    FieldAccess {
+        object: Box<Expression>,
+        field: String,
+    },
     FunctionCall(FunctionCallExpression),
     BinaryOperation {
         left: Box<Expression>,
@@ -121,6 +128,19 @@ impl<'source> Parser<'source> {
         }
     }
 
+    fn consume_identifier(&mut self) -> Result<String, ParserError> {
+        let token = self
+            .lexer
+            .next_token()
+            .ok_or(ParserError::UnexpectedEOF)??;
+
+        if let Token::Identifier(name) = token {
+            Ok(name.to_string())
+        } else {
+            Err(ParserError::UnexpectedToken(format!("{:?}", token)))
+        }
+    }
+
     fn parse_number_literal(
         num_str: &str,
     ) -> Result<Expression, ParserError> {
@@ -169,6 +189,29 @@ impl<'source> Parser<'source> {
         Ok(FunctionCallExpression { identifier, arguments })
     }
 
+    fn parse_object_expression(&mut self) -> Result<Expression, ParserError> {
+        let _double_lbrace_token = self.consume_token(Token::DoubleLBrace)?;
+        let mut properties = vec![];
+        while let Some(token) = self.lexer.peek() {
+            if token? == Token::DoubleRBrace {
+                break;
+            }
+            let key = self.consume_identifier()?;
+            let _colon_token = self.consume_token(Token::Colon)?;
+            let value = self.parse_expression()?;
+            properties.push((key, value));
+            if let Some(token) = self.lexer.peek() {
+                if token? == Token::Comma {
+                    let _comma_token = self.consume_token(Token::Comma)?;
+                } else {
+                    break;
+                }
+            }
+        }
+        let _double_rbrace_token = self.consume_token(Token::DoubleRBrace)?;
+        Ok(Expression::ObjectLiteral { properties })
+    }
+
     fn parse_primary_expression(&mut self) -> Result<Expression, ParserError> {
         let token = self
             .lexer
@@ -207,6 +250,7 @@ impl<'source> Parser<'source> {
                 let _ = self.lexer.next_token(); // consume the false
                 Ok(Expression::False)
             }
+            Token::DoubleLBrace => self.parse_object_expression(),
             Token::LParen => {
                 self.consume_token(Token::LParen)?;
                 let expr = self.parse_expression()?;
@@ -215,6 +259,25 @@ impl<'source> Parser<'source> {
             }
             _ => Err(ParserError::UnexpectedToken(format!("{:?}", token))),
         }
+    }
+
+    fn parse_field_access_expression(&mut self) -> Result<Expression, ParserError> {
+        let mut expr = self.parse_primary_expression()?;
+
+        while let Some(token) = self.lexer.peek() {
+            match token? {
+                Token::Dot => {
+                    let _dot_token = self.consume_token(Token::Dot)?;
+                    let field_name = self.consume_identifier()?;
+                    expr = Expression::FieldAccess {
+                        object: Box::new(expr),
+                        field: field_name,
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
 
     fn parse_unary_expression(&mut self) -> Result<Expression, ParserError> {
@@ -242,7 +305,7 @@ impl<'source> Parser<'source> {
                     _ => unreachable!(),
                 }
             }
-            _ => self.parse_primary_expression(),
+            _ => self.parse_field_access_expression(),
         }
     }
 
