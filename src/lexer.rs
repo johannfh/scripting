@@ -32,6 +32,8 @@ pub enum Token<'source> {
     True,
     #[token("false")]
     False,
+    #[token("undefined")]
+    Undefined,
 
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(&'source str),
@@ -78,6 +80,11 @@ pub enum Token<'source> {
     GreaterThan,
     #[token(">=")]
     GreaterThanOrEqual,
+
+    #[token("&&")]
+    And,
+    #[token("||")]
+    Or,
 
     #[token("(")]
     LParen,

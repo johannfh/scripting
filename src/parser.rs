@@ -10,6 +10,22 @@ pub enum BinaryOperator {
     Multiply,
     #[display("/")]
     Divide,
+    #[display("==")]
+    Equal,
+    #[display("!=")]
+    NotEqual,
+    #[display("<")]
+    LessThan,
+    #[display("<=")]
+    LessThanOrEqual,
+    #[display(">")]
+    GreaterThan,
+    #[display(">=")]
+    GreaterThanOrEqual,
+    #[display("&&")]
+    And,
+    #[display("||")]
+    Or,
 }
 
 #[derive(Debug, Display, Clone)]
@@ -32,6 +48,9 @@ pub enum Expression {
     IntegerLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
+    True,
+    False,
+    Undefined,
     FunctionCall(FunctionCallExpression),
     BinaryOperation {
         left: Box<Expression>,
@@ -55,7 +74,6 @@ pub struct VariableAssignment {
     pub identifier: String,
     pub value: Expression,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum Item {
@@ -177,6 +195,18 @@ impl<'source> Parser<'source> {
                 let _ = self.lexer.next_token(); // consume the string
                 Ok(Expression::StringLiteral(str_val.to_string()))
             }
+            Token::Undefined => {
+                let _ = self.lexer.next_token(); // consume the undefined
+                Ok(Expression::Undefined)
+            }
+            Token::True => {
+                let _ = self.lexer.next_token(); // consume the true
+                Ok(Expression::True)
+            }
+            Token::False => {
+                let _ = self.lexer.next_token(); // consume the false
+                Ok(Expression::False)
+            }
             Token::LParen => {
                 self.consume_token(Token::LParen)?;
                 let expr = self.parse_expression()?;
@@ -276,11 +306,81 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_equality_expression(&mut self) -> Result<Expression, ParserError> {
-        self.parse_comparison_expression()
+        let mut expr = self.parse_comparison_expression()?;
+
+        while let Some(token) = self.lexer.peek() {
+            match token? {
+                Token::DoubleEqual | Token::NotEqual => {
+                    let operator_token = self
+                        .lexer
+                        .next_token()
+                        .ok_or(ParserError::UnexpectedEOF)??;
+                    let right = self.parse_comparison_expression()?;
+                    let operator = match operator_token {
+                        Token::DoubleEqual => BinaryOperator::Equal,
+                        Token::NotEqual => BinaryOperator::NotEqual,
+                        _ => unreachable!(),
+                    };
+                    expr = Expression::BinaryOperation {
+                        left: Box::new(expr),
+                        operator,
+                        right: Box::new(right),
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_logical_and_expression(&mut self) -> Result<Expression, ParserError> {
+        let mut expr = self.parse_equality_expression()?;
+
+        while let Some(token) = self.lexer.peek() {
+            match token? {
+                Token::And => {
+                    let _operator_token = self
+                        .lexer
+                        .next_token()
+                        .ok_or(ParserError::UnexpectedEOF)??;
+                    let right = self.parse_equality_expression()?;
+                    expr = Expression::BinaryOperation {
+                        left: Box::new(expr),
+                        operator: BinaryOperator::And,
+                        right: Box::new(right),
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_logical_or_expression(&mut self) -> Result<Expression, ParserError> {
+        let mut expr = self.parse_logical_and_expression()?;
+        
+        while let Some(token) = self.lexer.peek() {
+            match token? {
+                Token::Or => {
+                    let _operator_token = self
+                        .lexer
+                        .next_token()
+                        .ok_or(ParserError::UnexpectedEOF)??;
+                    let right = self.parse_logical_and_expression()?;
+                    expr = Expression::BinaryOperation {
+                        left: Box::new(expr),
+                        operator: BinaryOperator::Or,
+                        right: Box::new(right),
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
 
     fn parse_expression(&mut self) -> Result<Expression, ParserError> {
-        self.parse_equality_expression()
+        self.parse_logical_or_expression()
     }
 
     fn parse_variable_declaration(&mut self) -> Result<VariableDeclaration, ParserError> {
@@ -342,7 +442,6 @@ impl<'source> Parser<'source> {
                 let var_decl = self.parse_variable_declaration()?;
                 Ok(Item::VariableDeclaration(var_decl))
             }
-
             Token::Identifier(_) => {
                 let next_token = self
                     .lexer

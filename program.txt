@@ -1,9 +1,21 @@
+let name = input("Enter your name: ");
+
+print("5 + 10 = " + (5 + 10));
+print("5 - 10 = " + (5 - 10));
+print("5 * 10 = " + (5 * 10));
+print("10 / 5 = " + (10 / 5));
+
 let x = 10;
+print("Initial x: " + x);
 
 x = x + 5;
+print("x = x + 5: " + x);
 
-print(x);
+let y = undefined;
 
-let name = input("Enter your name: ");
+let tr = true;
+let fl = false;
+
+let cmp = true || false;
 
 print("Thanks for running this script " + name + "!");
