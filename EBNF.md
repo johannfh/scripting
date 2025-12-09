@@ -107,3 +107,29 @@ LogicalOr = LogicalAnd ( "||" LogicalAnd )*
 ```
 Expression = LogicalOr
 ```
+
+
+## VariableDeclaration
+
+```
+VariableDeclaration = "let" Identifier ("=" Expression)? ";"
+```
+
+## Block
+
+```
+Block = "{" [ Item* ] "}"
+```
+
+## FunctionDeclaration
+
+```
+FunctionDeclaration = "fn" "(" [ Identifier ("," Identifier)* ] ")" Block
+```
+
+## Item
+
+```
+Item = VariableDeclaration
+     | FunctionDeclaration
+```

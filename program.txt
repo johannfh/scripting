@@ -25,5 +25,26 @@ let obj = {{
 let k1 = obj.key1;
 print("obj.key1: " + k1);
 
+fn greet(name) {
+    return "Hello, " + name + "!";
+}
+
+fn add(a, b) {
+    return a + b;
+}
+
+fn greet_person(person) {
+    let name = person.name;
+    let age = person.age;
+    let age_next_year = add(age, 1);
+    return "Hello, " + name + "! You are " + age + " years old. Next year, you will be " + age_next_year + ", WOW!";
+}
+
 let name = input("Enter your name: ");
-print("Thanks for running this script " + name + "!");
+let age = 10;
+let person = {{
+    name: name,
+    age: age
+}};
+
+print(greet_person(person));

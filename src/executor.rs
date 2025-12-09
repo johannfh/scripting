@@ -1,16 +1,19 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::parser::{self, BinaryOperator, Expression};
+use crate::parser::{self, BinaryOperator, Expression, Item};
+
+#[derive(Debug)]
+pub struct UserDefinedFunction {
+    pub parameters: Vec<String>,
+    pub body: Vec<Item>,
+}
 
 #[derive(Debug, Clone)]
 pub enum Function {
     #[debug("BuiltIn")]
     BuiltIn(Rc<dyn Fn(Vec<Value>) -> Result<Value, ExecutionError> + 'static>),
     #[debug("UserDefined")]
-    UserDefined {
-        parameters: Vec<String>,
-        body: Vec<parser::Item>,
-    },
+    UserDefined(Rc<UserDefinedFunction>),
 }
 
 #[derive(Debug, Clone)]
@@ -120,12 +123,14 @@ impl Executor {
     }
 
     pub fn evaluate_function_call_expression(
-        &self,
+        &mut self,
         func_call: &parser::FunctionCallExpression,
     ) -> Result<Value, ExecutionError> {
         let function_value = self
             .get_variable(&func_call.identifier)
-            .ok_or_else(|| ExecutionError::UndefinedVariable(func_call.identifier.clone()))?;
+            .ok_or_else(|| ExecutionError::UndefinedVariable(func_call.identifier.clone()))?
+            // TODO: get around this clone? -> will be a pain
+            .clone();
         let mut arg_values = Vec::new();
         for arg_expr in &func_call.arguments {
             let arg_value = self.evaluate_expression(arg_expr)?;
@@ -134,8 +139,34 @@ impl Executor {
 
         match function_value {
             Value::Function(Function::BuiltIn(func)) => func(arg_values),
-            Value::Function(Function::UserDefined { .. }) => {
-                todo!("User-defined function execution not implemented yet");
+            Value::Function(Function::UserDefined(func)) => {
+                let mut new_scope = HashMap::new();
+                let mut args = arg_values.into_iter();
+                for param in func.parameters.iter() {
+                    if let Some(arg_value) = args.next() {
+                        new_scope.insert(param.clone(), arg_value);
+                    } else {
+                        new_scope.insert(param.clone(), Value::Undefined);
+                    }
+                }
+                self.scope_stack.push(new_scope);
+
+                let mut return_value = Value::Undefined;
+                for item in func.body.iter() {
+                    match item {
+                        Item::ReturnStatement(expr) => {
+                            return_value = if let Some(ret_expr) = &expr {
+                                self.evaluate_expression(ret_expr)?
+                            } else {
+                                Value::Undefined
+                            };
+                            break;
+                        }
+                        _ => self.execute_item(item.clone())?,
+                    }
+                }
+                self.scope_stack.pop();
+                Ok(return_value)
             }
             _ => Err(ExecutionError::TypeMismatch(format!(
                 "'{}' is not a function",
@@ -144,7 +175,7 @@ impl Executor {
         }
     }
 
-    pub fn evaluate_expression(&self, expr: &Expression) -> Result<Value, ExecutionError> {
+    pub fn evaluate_expression(&mut self, expr: &Expression) -> Result<Value, ExecutionError> {
         match expr {
             Expression::FloatLiteral(f) => Ok(Value::Float(*f)),
             Expression::IntegerLiteral(i) => Ok(Value::Integer(*i)),
@@ -265,9 +296,9 @@ impl Executor {
         }
     }
 
-    pub fn execute_item(&mut self, item: parser::Item) -> Result<(), ExecutionError> {
+    pub fn execute_item(&mut self, item: Item) -> Result<(), ExecutionError> {
         match item {
-            parser::Item::VariableDeclaration(var_decl) => {
+            Item::VariableDeclaration(var_decl) => {
                 let value = if let Some(initializer) = var_decl.initializer {
                     self.evaluate_expression(&initializer)?
                 } else {
@@ -277,14 +308,28 @@ impl Executor {
                 self.declare_variable(var_decl.identifier, value);
                 Ok(())
             }
-            parser::Item::VariableAssignment(var_assign) => {
+            Item::VariableAssignment(var_assign) => {
                 let value = self.evaluate_expression(&var_assign.value)?;
                 self.assign_variable(var_assign.identifier, value)
             }
-            parser::Item::FunctionCallStatement(func_call) => {
+            Item::FunctionDeclaration(func_decl) => {
+                let parameters = func_decl.parameters;
+                let body = func_decl.body;
+                let function = Function::UserDefined(Rc::new(UserDefinedFunction {
+                    parameters,
+                    body,
+                }));
+
+                let identifier = func_decl.identifier;
+                self.declare_variable(identifier, Value::Function(function));
+                Ok(())
+            }
+            Item::FunctionCallStatement(func_call) => {
                 let _function_value = self.evaluate_function_call_expression(&func_call)?;
                 Ok(())
             }
+            // here: catch top-level returns, etc.
+            _ => todo!("Item {:?} cannot be executed on its own", item),
         }
     }
 

@@ -83,9 +83,20 @@ pub struct VariableAssignment {
 }
 
 #[derive(Debug, Clone)]
+pub struct FunctionDeclaration {
+    pub identifier: String,
+    pub parameters: Vec<String>,
+    // TODO: support variadic parameters
+    // pub variadic: Option<Vec<String>>,
+    pub body: Vec<Item>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Item {
     VariableDeclaration(VariableDeclaration),
     VariableAssignment(VariableAssignment),
+    FunctionDeclaration(FunctionDeclaration),
+    ReturnStatement(Option<Expression>),
     FunctionCallStatement(FunctionCallExpression),
 }
 
@@ -494,6 +505,48 @@ impl<'source> Parser<'source> {
         Ok(VariableAssignment { identifier, value })
     }
 
+    fn parse_block(&mut self) -> Result<Vec<Item>, ParserError> {
+        let _lbrace_token = self.consume_token(Token::LBrace)?;
+        let mut items = vec![];
+        while let Some(token) = self.lexer.peek() {
+            if token? == Token::RBrace {
+                break;
+            }
+            let item = self.parse_item()?;
+            items.push(item);
+        }
+        let _rbrace_token = self.consume_token(Token::RBrace)?;
+        Ok(items)
+    }
+
+    fn parse_function_declaration(&mut self) -> Result<FunctionDeclaration, ParserError> {
+        let _fn_token = self.consume_token(Token::Fn)?;
+        let identifier = self.consume_identifier()?;
+        let _lparen_token = self.consume_token(Token::LParen)?;
+        let mut parameters = vec![];
+        while let Some(token) = self.lexer.peek() {
+            if token? == Token::RParen {
+                break;
+            }
+            let param_name = self.consume_identifier()?;
+            parameters.push(param_name);
+            if let Some(token) = self.lexer.peek() {
+                if token? == Token::Comma {
+                    let _comma_token = self.consume_token(Token::Comma)?;
+                } else {
+                    break;
+                }
+            }
+        }
+        let _rparen_token = self.consume_token(Token::RParen)?;
+        let body = self.parse_block()?;
+        Ok(FunctionDeclaration {
+            identifier,
+            parameters,
+            body,
+        })
+    }
+
     fn parse_item(&mut self) -> Result<Item, ParserError> {
         let token = self
             .lexer
@@ -504,6 +557,10 @@ impl<'source> Parser<'source> {
             Token::Let => {
                 let var_decl = self.parse_variable_declaration()?;
                 Ok(Item::VariableDeclaration(var_decl))
+            }
+            Token::Fn => {
+                let fn_decl = self.parse_function_declaration()?;
+                Ok(Item::FunctionDeclaration(fn_decl))
             }
             Token::Identifier(_) => {
                 let next_token = self
@@ -533,6 +590,16 @@ impl<'source> Parser<'source> {
                     }
                 }
 
+            }
+            Token::Return => {
+                let _return_token = self.consume_token(Token::Return)?;
+                let expr = if self.lexer.peek().ok_or(ParserError::UnexpectedEOF)?? != Token::Semicolon {
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                };
+                let _semicolon_token = self.consume_token(Token::Semicolon)?;
+                Ok(Item::ReturnStatement(expr))
             }
             t => return Err(ParserError::UnexpectedToken(format!("{:?}", t))),
         }
