@@ -87,6 +87,12 @@ fn std_input(args: Vec<Value>) -> Result<Value, ExecutionError> {
     ))
 }
 
+fn std_clear(_args: Vec<Value>) -> Result<Value, ExecutionError> {
+    // Clear the terminal screen
+    print!("\x1B[2J\x1B[1;1H");
+    Ok(Value::Undefined)
+}
+
 #[derive(Debug)]
 pub enum ControlFlow {
     Return(Value),
@@ -251,6 +257,7 @@ impl Executor {
 
                     // --- String Binary Operators ---
                     (Value::String(l), Value::String(r), BinaryOperator::Add) => Ok(Value::String(l + &r)),
+                    (Value::String(l), Value::String(r), BinaryOperator::Equal) => Ok(Value::Boolean(l == r)),
 
                     // --- String-Integer Mixed Operators ---
                     (Value::String(l), Value::Integer(r), BinaryOperator::Add) => Ok(Value::String(l + &r.to_string())),
@@ -437,6 +444,23 @@ impl Executor {
                     ))),
                 }
             }
+            Item::WhileExpression(while_expr) => {
+                while self.evaluate_expression(&while_expr.condition)?.is_truthy() {
+                    // PERF: get around this clone!
+                    for item in while_expr.body.clone() {
+                        let cf = self.execute_item(item)?;
+                        if let Some(cf) = cf {
+                            match cf {
+                                // stop this execution of the items, go to next
+                                ControlFlow::Continue => break,
+                                _ => return Ok(Some(cf)),
+                            }
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            Item::ContinueStatement => Ok(Some(ControlFlow::Continue)),
         }
     }
 
@@ -467,5 +491,9 @@ impl Executor {
         let input_function = Function::BuiltIn(Rc::new(std_input));
         self.globals
             .insert("input".to_string(), Value::Function(input_function));
+
+        let clear_function = Function::BuiltIn(Rc::new(std_clear));
+        self.globals
+            .insert("clear".to_string(), Value::Function(clear_function));
     }
 }

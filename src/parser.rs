@@ -120,6 +120,12 @@ pub struct FieldAssign {
 }
 
 #[derive(Debug, Clone)]
+pub struct WhileExpression {
+    pub condition: Expression,
+    pub body: Vec<Item>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Item {
     VariableDeclaration(VariableDeclaration),
     VariableAssignment(VariableAssignment),
@@ -128,6 +134,8 @@ pub enum Item {
     FunctionCallStatement(FunctionCallExpression),
     IfExpression(IfExpression),
     FieldAssign(FieldAssign),
+    WhileExpression(WhileExpression),
+    ContinueStatement,
 }
 
 #[derive(Debug)]
@@ -287,6 +295,13 @@ impl<'source> Parser<'source> {
             else_if_clauses,
             else_clause,
         })
+    }
+
+    fn parse_while_expression(&mut self) -> Result<WhileExpression, ParserError> {
+        let _while_token = self.consume_token(Token::While);
+        let condition = self.parse_expression()?;
+        let body = self.parse_block()?;
+        Ok(WhileExpression { condition, body })
     }
 
     fn parse_primary_expression(&mut self) -> Result<Expression, ParserError> {
@@ -651,6 +666,10 @@ impl<'source> Parser<'source> {
                 let if_expr = self.parse_if_expression()?;
                 Ok(Item::IfExpression(if_expr))
             }
+            Token::While => {
+                let while_expr = self.parse_while_expression()?;
+                Ok(Item::WhileExpression(while_expr))
+            }
             Token::Identifier(_) => {
                 let next_token = self
                     .lexer
@@ -694,6 +713,11 @@ impl<'source> Parser<'source> {
                     };
                 let _semicolon_token = self.consume_token(Token::Semicolon)?;
                 Ok(Item::ReturnStatement(expr))
+            }
+            Token::Continue => {
+                let _continue_token = self.consume_token(Token::Continue)?;
+                let _semicolon_token = self.consume_token(Token::Semicolon)?;
+                Ok(Item::ContinueStatement)
             }
             t => return Err(ParserError::UnexpectedToken(format!("{:?}", t))),
         }

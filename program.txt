@@ -1,61 +1,106 @@
-
-print("5 + 10 = " + (5 + 10));
-print("5 - 10 = " + (5 - 10));
-print("5 * 10 = " + (5 * 10));
-print("10 / 5 = " + (10 / 5));
-
-let x = 10;
-print("Initial x: " + x);
-
-x = x + 5;
-print("x = x + 5: " + x);
-
-let y = undefined;
-
-let tr = true;
-let fl = false;
-
-let cmp = true || false;
-
-let obj = {{
-    key1: "value1",
-    key2: 42
-}};
-
-let k1 = obj.key1;
-print("obj.key1: " + k1);
-
-fn greet(name) {
-    return "Hello, " + name + "!";
+fn create_node(title) {
+    return {{ title: title, next: undefined }};
 }
 
-fn add(a, b) {
-    return a + b;
+fn create_queue() {
+    return {{ head: undefined, tail: undefined }};
 }
 
-fn greet_person(person) {
-    let name = person.name;
-    let age = person.age;
-    let age_next_year = add(age, 1);
-    return "Hello, " + name + "! You are " + age + " years old. Next year, you will be " + age_next_year + ", WOW!";
+fn queue_enq(queue, node) {
+    if !queue.head {
+        queue.head = node;
+        queue.tail = node;
+    } else {
+        queue.tail.next = node;
+        queue.tail = node;
+    }
 }
 
-let name = input("Enter your name: ");
-let age = 10;
-let person = {{
-    name: name,
-    age: age
-}};
-
-person.age = person.age * 2;
-
-print(greet_person(person));
-
-if 5 < 6 {
-    print("5 is less than 6");
+fn queue_deq(queue) {
+    if !queue.head {
+        return null;
+    } else {
+        let result = queue.head;
+        queue.head = result.next;
+        if !queue.head {
+            queue.tail = null;
+        }
+        return result;
+    }
 }
 
-if !q {
-    print("q is undefined");
+fn queue_show(queue) {
+    let current = queue.head;
+    let i = 1;
+    while current {
+        print(i + ". > " + current.title);
+        current = current.next;
+        i = i + 1;
+    }
 }
 
+let tq = create_queue();
+
+fn print_help() {
+    print("-- List of commands --");
+    print("h/help: show this menu");
+    print("a/add: add a task");
+    print("d/done: complete the next task");
+    print("s/show: show all tasks");
+    print("q/quit: quit the program");
+    print("c/clear: clear the screen");
+}
+
+fn add_command() {
+    let title = input("Enter title: ");
+    print("Adding task " + title);
+    let node = create_node(title);
+    queue_enq(tq, node);
+}
+
+fn done_command() {
+    let node = queue_deq(tq);
+    if !node {
+        print("Todo list already empty");
+    } else {
+        print("Marked '" + node.title + "' as completed!");
+    }
+}
+
+fn show_command() {
+    print("-- Todo List --");
+    queue_show(tq);
+}
+
+let running = true;
+while running {
+    let command = input("Enter command (h for help): ");
+    if command == "h" || command == "help" {
+        print_help();
+        continue;
+    }
+    if command == "a" || command == "add" {
+        add_command();
+        continue;
+    }
+    if command == "d" || command == "done" {
+        done_command();
+        continue;
+    }
+    if command == "s" || command == "show" {
+        show_command();
+        continue;
+    }
+    if command == "q" || command == "quit" {
+        running = false;
+        continue;
+    }
+    if command == "c" || command == "clear" {
+        clear();
+        continue;
+    }
+
+    print("unknown command: " + command);
+}
+
+print("Goodbye!");
