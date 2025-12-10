@@ -124,7 +124,7 @@ Block = "{" [ Item* ] "}"
 ## FunctionDeclaration
 
 ```
-FunctionDeclaration = "fn" "(" [ Identifier ("," Identifier)* ] ")" Block
+FunctionDeclaration = "fn" Identifier "(" [ Identifier ("," Identifier)* ] ")" Block
 ```
 
 ## Item
