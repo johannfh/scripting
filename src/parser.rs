@@ -43,6 +43,12 @@ pub struct FunctionCallExpression {
 }
 
 #[derive(Debug, Clone)]
+pub struct FieldAccessExpression {
+    pub object: Box<Expression>,
+    pub field: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
     Identifier(String),
     IntegerLiteral(i64),
@@ -54,10 +60,7 @@ pub enum Expression {
     ObjectLiteral {
         properties: Vec<(String, Expression)>,
     },
-    FieldAccess {
-        object: Box<Expression>,
-        field: String,
-    },
+    FieldAccess(FieldAccessExpression),
     FunctionCall(FunctionCallExpression),
     BinaryOperation {
         left: Box<Expression>,
@@ -92,12 +95,39 @@ pub struct FunctionDeclaration {
 }
 
 #[derive(Debug, Clone)]
+pub struct IfExpression {
+    pub condition: Expression,
+    pub body: Vec<Item>,
+    pub else_if_clauses: Vec<ElseIfClause>,
+    pub else_clause: Option<ElseClause>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElseIfClause {
+    pub condition: Expression,
+    pub body: Vec<Item>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ElseClause {
+    pub body: Vec<Item>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FieldAssign {
+    pub access: Expression,
+    pub value: Expression,
+}
+
+#[derive(Debug, Clone)]
 pub enum Item {
     VariableDeclaration(VariableDeclaration),
     VariableAssignment(VariableAssignment),
     FunctionDeclaration(FunctionDeclaration),
     ReturnStatement(Option<Expression>),
     FunctionCallStatement(FunctionCallExpression),
+    IfExpression(IfExpression),
+    FieldAssign(FieldAssign),
 }
 
 #[derive(Debug)]
@@ -152,9 +182,7 @@ impl<'source> Parser<'source> {
         }
     }
 
-    fn parse_number_literal(
-        num_str: &str,
-    ) -> Result<Expression, ParserError> {
+    fn parse_number_literal(num_str: &str) -> Result<Expression, ParserError> {
         if num_str.contains('.') {
             let value: f64 = num_str.parse().map_err(|_| {
                 ParserError::UnexpectedToken(format!("Invalid float literal: {}", num_str))
@@ -169,7 +197,8 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_function_call_expression(&mut self) -> Result<FunctionCallExpression, ParserError> {
-        let identifier_token = self.lexer
+        let identifier_token = self
+            .lexer
             .next_token()
             .ok_or(ParserError::UnexpectedEOF)??;
         let identifier = if let Token::Identifier(name) = identifier_token {
@@ -197,7 +226,10 @@ impl<'source> Parser<'source> {
             }
         }
         let _rparen_token = self.consume_token(Token::RParen)?;
-        Ok(FunctionCallExpression { identifier, arguments })
+        Ok(FunctionCallExpression {
+            identifier,
+            arguments,
+        })
     }
 
     fn parse_object_expression(&mut self) -> Result<Expression, ParserError> {
@@ -223,11 +255,42 @@ impl<'source> Parser<'source> {
         Ok(Expression::ObjectLiteral { properties })
     }
 
+    fn parse_if_expression(&mut self) -> Result<IfExpression, ParserError> {
+        let _if_token = self.consume_token(Token::If)?;
+        let condition = self.parse_expression()?;
+        let body = self.parse_block()?;
+        let mut else_if_clauses = vec![];
+        while let Some(token) = self.lexer.peek() {
+            if token? == Token::Elif {
+                let _elif_token = self.consume_token(Token::Elif)?;
+                let elif_condition = self.parse_expression()?;
+                let elif_body = self.parse_block()?;
+                else_if_clauses.push(ElseIfClause {
+                    condition: elif_condition,
+                    body: elif_body,
+                });
+            } else {
+                break;
+            }
+        }
+        let mut else_clause = None;
+        if let Some(token) = self.lexer.peek() {
+            if token? == Token::Else {
+                let _else_token = self.consume_token(Token::Else)?;
+                let else_body = self.parse_block()?;
+                else_clause = Some(ElseClause { body: else_body });
+            }
+        }
+        Ok(IfExpression {
+            condition,
+            body,
+            else_if_clauses,
+            else_clause,
+        })
+    }
+
     fn parse_primary_expression(&mut self) -> Result<Expression, ParserError> {
-        let token = self
-            .lexer
-            .peek()
-            .ok_or(ParserError::UnexpectedEOF)??;
+        let token = self.lexer.peek().ok_or(ParserError::UnexpectedEOF)??;
 
         match token {
             Token::Identifier(name) => {
@@ -244,7 +307,7 @@ impl<'source> Parser<'source> {
             Token::Number(num_str) => {
                 let _ = self.lexer.next_token(); // consume the number
                 Self::parse_number_literal(num_str)
-            },
+            }
             Token::String(str_val) => {
                 let _ = self.lexer.next_token(); // consume the string
                 Ok(Expression::StringLiteral(str_val.to_string()))
@@ -280,10 +343,10 @@ impl<'source> Parser<'source> {
                 Token::Dot => {
                     let _dot_token = self.consume_token(Token::Dot)?;
                     let field_name = self.consume_identifier()?;
-                    expr = Expression::FieldAccess {
+                    expr = Expression::FieldAccess(FieldAccessExpression {
                         object: Box::new(expr),
                         field: field_name,
-                    };
+                    });
                 }
                 _ => break,
             }
@@ -292,10 +355,7 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_unary_expression(&mut self) -> Result<Expression, ParserError> {
-        let token = self
-            .lexer
-            .peek()
-            .ok_or(ParserError::UnexpectedEOF)??;
+        let token = self.lexer.peek().ok_or(ParserError::UnexpectedEOF)??;
 
         match token {
             Token::Not | Token::Minus => {
@@ -347,7 +407,6 @@ impl<'source> Parser<'source> {
         Ok(expr)
     }
 
-
     fn parse_term_expression(&mut self) -> Result<Expression, ParserError> {
         let mut expr = self.parse_factor_expression()?;
         while let Some(token) = self.lexer.peek() {
@@ -376,7 +435,36 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_comparison_expression(&mut self) -> Result<Expression, ParserError> {
-        self.parse_term_expression()
+        let mut expr = self.parse_term_expression()?;
+
+        while let Some(token) = self.lexer.peek() {
+            match token? {
+                Token::LessThan
+                | Token::LessThanOrEqual
+                | Token::GreaterThan
+                | Token::GreaterThanOrEqual => {
+                    let operator_token = self
+                        .lexer
+                        .next_token()
+                        .ok_or(ParserError::UnexpectedEOF)??;
+                    let right = self.parse_term_expression()?;
+                    let operator = match operator_token {
+                        Token::LessThan => BinaryOperator::LessThan,
+                        Token::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
+                        Token::GreaterThan => BinaryOperator::GreaterThan,
+                        Token::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
+                        _ => unreachable!(),
+                    };
+                    expr = Expression::BinaryOperation {
+                        left: Box::new(expr),
+                        operator,
+                        right: Box::new(right),
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
 
     fn parse_equality_expression(&mut self) -> Result<Expression, ParserError> {
@@ -432,7 +520,7 @@ impl<'source> Parser<'source> {
 
     fn parse_logical_or_expression(&mut self) -> Result<Expression, ParserError> {
         let mut expr = self.parse_logical_and_expression()?;
-        
+
         while let Some(token) = self.lexer.peek() {
             match token? {
                 Token::Or => {
@@ -488,9 +576,9 @@ impl<'source> Parser<'source> {
 
     fn parse_variable_assignment(&mut self) -> Result<VariableAssignment, ParserError> {
         let identifier_token = self
-        .lexer
-        .next_token()
-        .ok_or(ParserError::UnexpectedEOF)??;
+            .lexer
+            .next_token()
+            .ok_or(ParserError::UnexpectedEOF)??;
         let identifier = if let Token::Identifier(name) = identifier_token {
             name.to_string()
         } else {
@@ -548,10 +636,7 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_item(&mut self) -> Result<Item, ParserError> {
-        let token = self
-            .lexer
-            .peek()
-            .ok_or(ParserError::UnexpectedEOF)??;
+        let token = self.lexer.peek().ok_or(ParserError::UnexpectedEOF)??;
 
         match token {
             Token::Let => {
@@ -561,6 +646,10 @@ impl<'source> Parser<'source> {
             Token::Fn => {
                 let fn_decl = self.parse_function_declaration()?;
                 Ok(Item::FunctionDeclaration(fn_decl))
+            }
+            Token::If => {
+                let if_expr = self.parse_if_expression()?;
+                Ok(Item::IfExpression(if_expr))
             }
             Token::Identifier(_) => {
                 let next_token = self
@@ -582,22 +671,27 @@ impl<'source> Parser<'source> {
                         let _semicolon_token = self.consume_token(Token::Semicolon)?;
                         Ok(Item::FunctionCallStatement(function_call))
                     }
-                    _ => {
-                        return Err(ParserError::UnexpectedToken(format!(
-                            "{:?}",
-                            next_token
-                        )))
+                    Token::Dot => {
+                        let field_access_expr = self.parse_field_access_expression()?;
+                        let _equal_token = self.consume_token(Token::Equal)?;
+                        let value_expr = self.parse_expression()?;
+                        let _semicolon_token = self.consume_token(Token::Semicolon)?;
+                        Ok(Item::FieldAssign(FieldAssign {
+                            access: field_access_expr,
+                            value: value_expr,
+                        }))
                     }
+                    _ => return Err(ParserError::UnexpectedToken(format!("{:?}", next_token))),
                 }
-
             }
             Token::Return => {
                 let _return_token = self.consume_token(Token::Return)?;
-                let expr = if self.lexer.peek().ok_or(ParserError::UnexpectedEOF)?? != Token::Semicolon {
-                    Some(self.parse_expression()?)
-                } else {
-                    None
-                };
+                let expr =
+                    if self.lexer.peek().ok_or(ParserError::UnexpectedEOF)?? != Token::Semicolon {
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    };
                 let _semicolon_token = self.consume_token(Token::Semicolon)?;
                 Ok(Item::ReturnStatement(expr))
             }

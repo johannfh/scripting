@@ -15,7 +15,7 @@ fn main() {
     let input = std::fs::read_to_string(input_path)
         .expect(&format!("Failed to read input script from: {}", input_path));
     info!("Input script read successfully.");
-    debug!("Input script content:\n{}", input);
+    //debug!("Input script content:\n{}", input);
 
     let mut parser = Parser::new(&input);
     let module = parser.parse_module().expect(&format!(
@@ -23,7 +23,7 @@ fn main() {
         parser.position()
     ));
     info!("Module parsed successfully.");
-    debug!("Parsed module: {:#?}", module);
+    //debug!("Parsed module: {:#?}", module);
 
     let mut executor = Executor::new();
     executor.load_standard_library();
@@ -35,5 +35,5 @@ fn main() {
         .expect(&format!("Failed to execute module"));
     info!("Execution completed successfully.");
 
-    debug!("Final executor state: {:#?}", executor);
+    //debug!("Final executor state: {:#?}", executor);
 }

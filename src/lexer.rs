@@ -18,6 +18,8 @@ pub enum Token<'source> {
     If,
     #[token("else")]
     Else,
+    #[token("elif")]
+    Elif,
     #[token("while")]
     While,
     #[token("for")]

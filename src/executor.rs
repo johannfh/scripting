@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::parser::{self, BinaryOperator, Expression, Item};
+use crate::parser::{self, BinaryOperator, Expression, Item, UnaryOperator};
 
 #[derive(Debug)]
 pub struct UserDefinedFunction {
@@ -42,6 +42,16 @@ pub enum Value {
     Object(Rc<RefCell<Object>>),
 }
 
+impl Value {
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Boolean(b) => *b,
+            Value::Undefined => false,
+            _ => true,
+        }
+    }
+}
+
 #[derive(Debug, Display, From, Error)]
 pub enum ExecutionError {
     #[from]
@@ -49,6 +59,7 @@ pub enum ExecutionError {
     UndefinedVariable(#[error(not(source))] String),
     TypeMismatch(#[error(not(source))] String),
     DivisionByZero,
+    InvalidOperator(#[error(not(source))] String),
     Other(#[error(not(source))] String),
 }
 
@@ -74,6 +85,13 @@ fn std_input(args: Vec<Value>) -> Result<Value, ExecutionError> {
     Ok(Value::String(
         input[..input.len().saturating_sub(1)].to_string(),
     ))
+}
+
+#[derive(Debug)]
+pub enum ControlFlow {
+    Return(Value),
+    Continue,
+    Break,
 }
 
 #[derive(Debug, Default)]
@@ -153,16 +171,15 @@ impl Executor {
 
                 let mut return_value = Value::Undefined;
                 for item in func.body.iter() {
-                    match item {
-                        Item::ReturnStatement(expr) => {
-                            return_value = if let Some(ret_expr) = &expr {
-                                self.evaluate_expression(ret_expr)?
-                            } else {
-                                Value::Undefined
-                            };
-                            break;
+                    let cf = self.execute_item(item.clone())?;
+                    if let Some(control_flow) = cf {
+                        match control_flow {
+                            ControlFlow::Return(val) => {
+                                return_value = val;
+                                break;
+                            }
+                            _ => {}
                         }
-                        _ => self.execute_item(item.clone())?,
                     }
                 }
                 self.scope_stack.pop();
@@ -255,7 +272,7 @@ impl Executor {
                 if let Some(value) = self.get_variable(name) {
                     Ok(value.clone())
                 } else {
-                    Err(ExecutionError::UndefinedVariable(name.clone()))
+                    Ok(Value::Undefined)
                 }
             }
             Expression::FunctionCall(func_call) => {
@@ -275,8 +292,10 @@ impl Executor {
                 };
                 Ok(Value::Object(Rc::new(RefCell::new(object))))
             }
-            Expression::FieldAccess { object, field } => {
+            Expression::FieldAccess(field_access) => {
+                let object = &field_access.object;
                 let object_value = self.evaluate_expression(object)?;
+                let field = &field_access.field;
                 match object_value {
                     Value::Object(obj_rc) => {
                         let obj_ref = obj_rc.borrow();
@@ -292,11 +311,23 @@ impl Executor {
                     ))),
                 }
             }
-            _ => todo!("Expression evaluation not implemented for {:?}", expr),
+            Expression::UnaryOperation { operator, operand } => {
+                trace!("entered unary operation: '{}' on {:?}", operator, operand);
+                let operand_result = self.evaluate_expression(operand)?;
+                match (operator, operand_result) {
+                    (&UnaryOperator::Not, v) => Ok(Value::Boolean(!v.is_truthy())),
+                    (&UnaryOperator::Negate, Value::Integer(i)) => Ok(Value::Integer(-i)),
+                    (&UnaryOperator::Negate, Value::Float(f)) => Ok(Value::Float(-f)),
+                    (&UnaryOperator::Negate, v) => Err(ExecutionError::InvalidOperator(format!(
+                        "Cannot negate value {:?}",
+                        v
+                    ))),
+                }
+            }
         }
     }
 
-    pub fn execute_item(&mut self, item: Item) -> Result<(), ExecutionError> {
+    pub fn execute_item(&mut self, item: Item) -> Result<Option<ControlFlow>, ExecutionError> {
         match item {
             Item::VariableDeclaration(var_decl) => {
                 let value = if let Some(initializer) = var_decl.initializer {
@@ -306,36 +337,122 @@ impl Executor {
                 };
 
                 self.declare_variable(var_decl.identifier, value);
-                Ok(())
+                Ok(None)
             }
             Item::VariableAssignment(var_assign) => {
                 let value = self.evaluate_expression(&var_assign.value)?;
                 self.assign_variable(var_assign.identifier, value)
+                    .map(|_| None)
             }
             Item::FunctionDeclaration(func_decl) => {
                 let parameters = func_decl.parameters;
                 let body = func_decl.body;
-                let function = Function::UserDefined(Rc::new(UserDefinedFunction {
-                    parameters,
-                    body,
-                }));
+                let function =
+                    Function::UserDefined(Rc::new(UserDefinedFunction { parameters, body }));
 
                 let identifier = func_decl.identifier;
                 self.declare_variable(identifier, Value::Function(function));
-                Ok(())
+                Ok(None)
             }
             Item::FunctionCallStatement(func_call) => {
                 let _function_value = self.evaluate_function_call_expression(&func_call)?;
-                Ok(())
+                Ok(None)
             }
-            // here: catch top-level returns, etc.
-            _ => todo!("Item {:?} cannot be executed on its own", item),
+            Item::IfExpression(if_expr) => {
+                let condition = &if_expr.condition;
+                let condition_result = self.evaluate_expression(condition)?;
+                let catches = condition_result.is_truthy();
+
+                if catches {
+                    info!("Got truthy value, executing branch!");
+                    for item in if_expr.body {
+                        let cf = self.execute_item(item)?;
+                        if let Some(cf) = cf {
+                            return Ok(Some(cf));
+                        }
+                    }
+                    return Ok(None);
+                }
+
+                for elif_clause in if_expr.else_if_clauses {
+                    let condition = &elif_clause.condition;
+                    let condition_result = self.evaluate_expression(condition)?;
+                    let catches = condition_result.is_truthy();
+
+                    if catches {
+                        info!("Got truthy value, executing branch!");
+                        for item in elif_clause.body {
+                            let cf = self.execute_item(item)?;
+                            if let Some(cf) = cf {
+                                return Ok(Some(cf));
+                            }
+                        }
+                        return Ok(None);
+                    }
+                }
+
+                if let Some(else_clause) = if_expr.else_clause {
+                    trace!("entered else branch");
+                    for item in else_clause.body {
+                        let cf = self.execute_item(item)?;
+                        if let Some(cf) = cf {
+                            return Ok(Some(cf));
+                        }
+                    }
+                }
+
+                trace!("no branch catched");
+                Ok(None)
+            }
+            Item::ReturnStatement(expr) => {
+                let return_value = if let Some(expr) = expr {
+                    self.evaluate_expression(&expr)?
+                } else {
+                    Value::Undefined
+                };
+                Ok(Some(ControlFlow::Return(return_value)))
+            }
+            Item::FieldAssign(field_assign) => {
+                let Expression::FieldAccess(field_access) = field_assign.access else {
+                    return Err(ExecutionError::Other(format!("Cannot access field")));
+                };
+                let object = self.evaluate_expression(&field_access.object)?;
+                match object {
+                    Value::Object(obj) => {
+                        let value = self.evaluate_expression(&field_assign.value)?;
+                        trace!(
+                            "setting field {} on object with fields {:?} to value {}",
+                            field_access.field,
+                            obj.borrow().properties,
+                            value
+                        );
+                        obj.borrow_mut()
+                            .properties
+                            .insert(field_access.field, value);
+                        Ok(None)
+                    }
+                    v => Err(ExecutionError::Other(format!(
+                        "Cannot access field on value {:?}",
+                        v
+                    ))),
+                }
+            }
         }
     }
 
     pub fn execute_module(&mut self, module: parser::Module) -> Result<(), ExecutionError> {
         for item in module.items {
-            self.execute_item(item)?;
+            let cf = self.execute_item(item)?;
+            if let Some(control_flow) = cf {
+                match control_flow {
+                    ControlFlow::Return(_) => {
+                        return Err(ExecutionError::Other(
+                            "Return statement not within a function".to_string(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
         }
         Ok(())
     }
